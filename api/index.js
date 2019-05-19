@@ -18,6 +18,17 @@ app.post('/api/auth/token', (req, res) => {
   res.json({ access_token: token })
 })
 
+app.get('/api/auth/verify', (req, res, next) => {
+  const { access_token } = req.query
+  try {
+    const decoded = jwt.verify(access_token, config.authJwtSecret)
+    res.json({ message: 'Access token is valid', username: decoded.sub })
+  } catch (error) {
+    // Con next invocamos el manejador de errores por defecto de express, un html
+    next(error)
+  }
+})
+
 const server = app.listen(5000, () =>
   console.log(`Listenig in port: ${server.address().port}`)
 )
