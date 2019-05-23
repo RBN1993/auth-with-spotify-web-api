@@ -25,18 +25,81 @@ app.use(cookieParser())
 app.set('views', path.join(__dirname, 'views'))
 app.set('view engine', 'pug')
 
+// getters
+function getUserInfo(accessToken) {
+  if (!accessToken) {
+    return Promise.resolve(null)
+  }
+
+  const options = {
+    url: 'https://api.spotify.com/v1/me',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    json: true
+  }
+
+  return new Promise((resolve, reject) => {
+    request.get(options, function(error, response, body) {
+      if (error || response.statusCode !== 200) {
+        reject(error)
+      }
+
+      resolve(body)
+    })
+  })
+}
+
+function getUserPlaylists(accessToken, userId) {
+  if (!accessToken || !userId) {
+    return Promise.resolve(null)
+  }
+
+  const options = {
+    url: `https://api.spotify.com/v1/users/${userId}/playlists`,
+    headers: { Authorization: `Bearer ${accessToken}` },
+    json: true
+  }
+
+  return new Promise((resolve, reject) => {
+    request.get(options, function(error, response, body) {
+      if (error || response.statusCode !== 200) {
+        reject(error)
+      }
+
+      resolve(body)
+    })
+  })
+}
+
 // routes
 app.get('/', async function(req, res, next) {
-  res.render('posts', {
-    posts: [
-      {
-        title: "John's playlist",
-        description:
-          'Creatine supplementation is the reference compound for increasing muscular creatine levels; there is variability in this increase, however, with some nonresponders.',
-        author: 'John Doe'
-      }
-    ]
-  })
+  const { access_token: accessToken } = req.cookies
+  console.log({ accessToken })
+  try {
+    const userInfo = await getUserInfo(accessToken)
+    res.render('playlists', {
+      userInfo,
+      isHome: true,
+      playlists: { items: playlistMocks }
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+app.get('/playlists', async function(req, res, next) {
+  const { access_token: accessToken } = req.cookies
+
+  if (!accessToken) {
+    return res.redirect('/')
+  }
+
+  try {
+    const userInfo = await getUserInfo(accessToken)
+    const userPlaylists = await getUserPlaylists(accessToken, userInfo.id)
+
+    res.render('playlists', { userInfo, playlists: userPlaylists })
+  } catch (error) {
+    next(error)
+  }
 })
 
 app.get('/login', (req, res) => {
@@ -54,11 +117,18 @@ app.get('/login', (req, res) => {
   res.redirect(`https://accounts.spotify.com/authorize?${queryString}`)
 })
 
-app.get('/callback', (req, res) => {
+app.get('/logout', function(req, res) {
+  res.clearCookie('access_token')
+  res.redirect('/')
+})
+
+app.get('/callback', (req, res, next) => {
   const { code, state } = req.query
-  const { auth_state } = req.cookies(state === null || state !== auth_state)
-    ? next(new Error('State does not match'))
-    : res.clearCookie('auth_state')
+  const { auth_state } = req.cookies
+  console.log({ auth_state })
+  if (state === null || state !== auth_state)
+    next(new Error('State does not match'))
+  res.clearCookie('auth_state')
 
   const authOptions = {
     url: 'https://accounts.spotify.com/api/token',
@@ -75,11 +145,10 @@ app.get('/callback', (req, res) => {
     },
     json: true
   }
-  request.post(authOptions, (err, response, body) => {
-    error || response.status !== 200
-      ? next(new Error('Invalid Token'))
-      : res.cookie('access_token', body.access_token, { httpOnly: true }) &&
-        res.redirect('/playlist')
+  request.post(authOptions, (error, response, body) => {
+    if (error || response.status !== 200) next(new Error('Invalid Token'))
+    res.cookie('access_token', body.access_token, { httpOnly: true })
+    res.redirect('/playlists')
   })
 })
 
